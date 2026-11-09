@@ -1,7 +1,8 @@
 """Validated data transfer objects for the public HTTP API."""
 
+from datetime import datetime, timedelta, timezone
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class MonitorCreate(BaseModel):
@@ -82,3 +83,27 @@ class MonitorUpdate(BaseModel):
         if value is None:
             return None
         return MonitorCreate.validate_url(value)
+
+
+class MaintenanceWindowCreate(BaseModel):
+    """One-time UTC maintenance interval; start inclusive, end exclusive."""
+
+    model_config = ConfigDict(extra="forbid")
+    starts_at: datetime
+    ends_at: datetime
+    reason: str = Field(default="", max_length=200)
+
+    @model_validator(mode="after")
+    def validate_window(self):
+        if self.starts_at.tzinfo is None or self.ends_at.tzinfo is None:
+            raise ValueError("Start and end must include a timezone offset")
+        self.starts_at = self.starts_at.astimezone(timezone.utc).replace(microsecond=0)
+        self.ends_at = self.ends_at.astimezone(timezone.utc).replace(microsecond=0)
+        if self.ends_at <= self.starts_at:
+            raise ValueError("End must be after start")
+        if self.ends_at <= datetime.now(timezone.utc):
+            raise ValueError("Maintenance window must not have ended")
+        if self.ends_at - self.starts_at > timedelta(days=7):
+            raise ValueError("Maintenance windows cannot exceed seven days")
+        self.reason = self.reason.strip()
+        return self

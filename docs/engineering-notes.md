@@ -7,7 +7,7 @@ These notes describe the implemented code paths and known boundaries of PulseFor
 1. Monitor configuration enters through a validated FastAPI request and is stored in SQLite.
 2. The scheduler picks due monitors; a per-monitor async lock prevents overlapping checks in the same application process.
 3. An HTTP probe checks the configured target, measures latency, and compares the actual status to the expected status. Redirects are disabled.
-4. A SQLite transaction stores the probe, updates the failure streak, and opens or closes an incident when the state changes.
+4. A SQLite transaction stores the probe, updates the failure streak, and opens or closes an incident when the state changes. A maintenance interval suppresses *new* opening alerts without skipping checks; persistent outages are announced after the interval ends.
 5. If a webhook is configured, the same transaction inserts the incident event in `notification_outbox`.
 6. The dispatcher delivers due events and records either success or the next retry time. The dashboard queries state over the API.
 
@@ -17,6 +17,7 @@ These notes describe the implemented code paths and known boundaries of PulseFor
 - **Failure threshold:** prevents a single intermittent network failure from immediately opening an incident. The trade-off is a delay in outage detection.
 - **Transaction-backed outbox:** preserves notifications when a destination is temporarily unavailable. Delivery is at least once, not exactly once.
 - **HTTP redirects disabled:** avoids silently probing a redirected, potentially private destination.
+- **Maintenance windows:** suppress new notifications rather than altering monitoring state or erasing outages. An announced incident still needs a resolution event to prevent stale downstream alarms.
 - **CSV exports:** useful for ad hoc analysis and incident reviews. Row limits and spreadsheet formula escaping reduce operational and security risk.
 
 ## Verification
@@ -25,4 +26,4 @@ Run `python -m pytest -q` for state transitions, validation, token protection, C
 
 ## Next engineering decisions
 
-Maintenance windows and configuration audit trails are practical next increments. The more substantial architectural question is moving from a single process to leased probe workers and a durable external database without duplicating checks during failure and restart. See [roadmap](roadmap.md).
+Configuration audit trails and richer historical charts are practical next increments. The more substantial architectural question is moving from a single process to leased probe workers and a durable external database without duplicating checks during failure and restart. See [roadmap](roadmap.md).

@@ -81,6 +81,16 @@ class Repository:
                     failed_checks INTEGER NOT NULL DEFAULT 0
                 );
                 CREATE INDEX IF NOT EXISTS idx_incidents_monitor_open ON incidents(monitor_id, resolved_at);
+                CREATE TABLE IF NOT EXISTS maintenance_windows (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    monitor_id INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
+                    starts_at TEXT NOT NULL,
+                    ends_at TEXT NOT NULL,
+                    reason TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    CHECK(ends_at > starts_at)
+                );
+                CREATE INDEX IF NOT EXISTS idx_maintenance_active ON maintenance_windows(monitor_id, starts_at, ends_at);
                 CREATE TABLE IF NOT EXISTS notification_outbox (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     event TEXT NOT NULL,
@@ -93,6 +103,21 @@ class Repository:
                 );
                 CREATE INDEX IF NOT EXISTS idx_outbox_pending ON notification_outbox(delivered_at, next_attempt_at);
             """)
+            # A pre-1.2 database has no alerted_at. Existing incidents have already
+            # gone through the old alert path, so mark them as announced on upgrade.
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(incidents)")}
+            if "alerted_at" not in columns:
+                conn.execute("ALTER TABLE incidents ADD COLUMN alerted_at TEXT")
+                conn.execute("UPDATE incidents SET alerted_at=started_at")
+
+    @staticmethod
+    def _maintenance_until(conn: sqlite3.Connection, monitor_id: int, now: str) -> str | None:
+        row = conn.execute(
+            "SELECT ends_at FROM maintenance_windows "
+            "WHERE monitor_id=? AND starts_at <= ? AND ends_at > ? "
+            "ORDER BY ends_at LIMIT 1", (monitor_id, now, now)
+        ).fetchone()
+        return row["ends_at"] if row else None
 
     @staticmethod
     def _monitor_row(conn: sqlite3.Connection, monitor_id: int) -> dict | None:
@@ -107,6 +132,8 @@ class Repository:
             return None
         item = dict(row)
         item["enabled"] = bool(item["enabled"])
+        item["maintenance_until"] = Repository._maintenance_until(conn, monitor_id, utcnow())
+        item["maintenance_active"] = item["maintenance_until"] is not None
         return item
 
     def create_monitor(self, data: dict) -> dict:
@@ -154,14 +181,43 @@ class Repository:
             cursor = conn.execute("DELETE FROM monitors WHERE id=?", (monitor_id,))
             return cursor.rowcount > 0
 
+    def list_maintenance_windows(self, monitor_id: int) -> list[dict]:
+        now = utcnow()
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM maintenance_windows WHERE monitor_id=? "
+                "ORDER BY starts_at DESC, id DESC", (monitor_id,)
+            ).fetchall()
+            return [{**dict(row), "active": row["starts_at"] <= now < row["ends_at"]} for row in rows]
+
+    def create_maintenance_window(self, monitor_id: int, data: dict) -> dict | None:
+        now = utcnow()
+        with self.connection() as conn:
+            if not conn.execute("SELECT 1 FROM monitors WHERE id=?", (monitor_id,)).fetchone():
+                return None
+            cursor = conn.execute(
+                "INSERT INTO maintenance_windows(monitor_id,starts_at,ends_at,reason,created_at) "
+                "VALUES (?,?,?,?,?)",
+                (monitor_id, data["starts_at"], data["ends_at"], data["reason"], now),
+            )
+            row = conn.execute("SELECT * FROM maintenance_windows WHERE id=?", (cursor.lastrowid,)).fetchone()
+            return {**dict(row), "active": row["starts_at"] <= now < row["ends_at"]}
+
+    def delete_maintenance_window(self, monitor_id: int, window_id: int) -> bool:
+        with self.connection() as conn:
+            return conn.execute(
+                "DELETE FROM maintenance_windows WHERE id=? AND monitor_id=?", (window_id, monitor_id)
+            ).rowcount > 0
+
     def record_probe(self, monitor_id: int, result: ProbeResult, queue_notifications: bool = False) -> tuple[dict | None, dict | None]:
-        """Atomically persist check + state change + incident; return notification on transition."""
+        """Persist the result and incident transition together; honor maintenance silence."""
         now = utcnow()
         notification = None
         with self.connection() as conn:
             monitor = self._monitor_row(conn, monitor_id)
             if monitor is None:
                 return None, None
+            in_maintenance = self._maintenance_until(conn, monitor_id, now) is not None
             conn.execute(
                 "INSERT INTO checks(monitor_id,checked_at,ok,status_code,latency_ms,error) VALUES (?,?,?,?,?,?)",
                 (monitor_id, now, int(result.ok), result.status_code, result.latency_ms, result.error),
@@ -176,25 +232,44 @@ class Repository:
                     ).fetchone()
                     if incident:
                         conn.execute("UPDATE incidents SET resolved_at=? WHERE id=?", (now, incident["id"]))
-                        notification = {
-                            "event": "incident.resolved",
-                            "monitor": {"id": monitor_id, "name": monitor["name"], "url": monitor["url"]},
-                            "incident": {"id": incident["id"], "started_at": incident["started_at"], "resolved_at": now},
-                        }
+                        # A previously announced outage needs a resolution even if
+                        # maintenance has started; otherwise receivers stay in alarm.
+                        if incident["alerted_at"]:
+                            notification = {
+                                "event": "incident.resolved",
+                                "monitor": {"id": monitor_id, "name": monitor["name"], "url": monitor["url"]},
+                                "incident": {"id": incident["id"], "started_at": incident["started_at"], "resolved_at": now},
+                            }
                 state = "UP"
             elif failures >= monitor["failure_threshold"]:
                 if state != "DOWN":
                     cursor = conn.execute(
-                        "INSERT INTO incidents(monitor_id,started_at,cause,failed_checks) VALUES (?,?,?,?)",
-                        (monitor_id, now, result.error, failures),
+                        "INSERT INTO incidents(monitor_id,started_at,cause,failed_checks,alerted_at) "
+                        "VALUES (?,?,?,?,?)",
+                        (monitor_id, now, result.error, failures, None if in_maintenance else now),
                     )
+                    incident_id, incident_start = cursor.lastrowid, now
+                    should_announce = not in_maintenance
+                else:
+                    incident = conn.execute(
+                        "SELECT * FROM incidents WHERE monitor_id=? AND resolved_at IS NULL ORDER BY id DESC LIMIT 1",
+                        (monitor_id,),
+                    ).fetchone()
+                    conn.execute(
+                        "UPDATE incidents SET failed_checks=failed_checks+1 "
+                        "WHERE monitor_id=? AND resolved_at IS NULL", (monitor_id,)
+                    )
+                    should_announce = bool(incident and not incident["alerted_at"] and not in_maintenance)
+                    if should_announce:
+                        conn.execute("UPDATE incidents SET alerted_at=? WHERE id=?", (now, incident["id"]))
+                    incident_id = incident["id"] if incident else None
+                    incident_start = incident["started_at"] if incident else now
+                if should_announce and incident_id is not None:
                     notification = {
                         "event": "incident.opened",
                         "monitor": {"id": monitor_id, "name": monitor["name"], "url": monitor["url"]},
-                        "incident": {"id": cursor.lastrowid, "started_at": now, "cause": result.error},
+                        "incident": {"id": incident_id, "started_at": incident_start, "cause": result.error},
                     }
-                else:
-                    conn.execute("UPDATE incidents SET failed_checks=failed_checks+1 WHERE monitor_id=? AND resolved_at IS NULL", (monitor_id,))
                 state = "DOWN"
             conn.execute("""
                 UPDATE monitors SET state=?,consecutive_failures=?,last_checked_at=?,
@@ -287,6 +362,11 @@ class Repository:
             ).fetchone()
             counts["checks_24h"] = checks["total"]
             counts["uptime_24h"] = round(100.0 * checks["success"] / checks["total"], 1) if checks["total"] else None
+            now = utcnow()
+            counts["in_maintenance"] = conn.execute(
+                "SELECT COUNT(DISTINCT monitor_id) FROM maintenance_windows "
+                "WHERE starts_at <= ? AND ends_at > ?", (now, now)
+            ).fetchone()[0]
             counts["active_incidents"] = conn.execute("SELECT COUNT(*) FROM incidents WHERE resolved_at IS NULL").fetchone()[0]
             outbox = conn.execute(
                 "SELECT COUNT(*) AS pending, SUM(CASE WHEN attempts > 0 THEN 1 ELSE 0 END) AS retrying "

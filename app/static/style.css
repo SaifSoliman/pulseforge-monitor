@@ -1320,3 +1320,42 @@ h1 {
     transition:none!important
   }
 }
+
+/* Planned maintenance sits alongside health, rather than replacing it. */
+.maintenance-note {
+  margin:10px 0 -8px;
+  font-size:11px;
+  color:#dfc78c;
+}
+.status-pill.maintenance-pill {
+  display:inline-block;
+  margin-left:8px;
+  color:#efcf94;
+  border-color:#655137;
+  background:#392f23;
+  vertical-align:middle;
+}
+.drawer-hint {
+  color:#8ca3bb;
+  font-size:12px;
+  line-height:1.6;
+}
+.maintenance-entry {
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  align-items:center;
+  padding:12px 0;
+  border-bottom:1px solid #25374d;
+}
+.maintenance-entry strong {
+  display:block;
+  color:#dde9f5;
+  font-size:12px;
+  line-height:1.7;
+}
+.maintenance-entry small {
+  display:block;
+  color:#8ca3bb;
+  margin-top:4px;
+}

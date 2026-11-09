@@ -39,6 +39,20 @@ curl -OJ 'http://localhost:8000/api/monitors/1/history.csv?limit=500'
 curl -OJ 'http://localhost:8000/api/incidents.csv?limit=500'
 ```
 
+Schedule maintenance (timestamps must include an offset; stored as UTC):
+
+```bash
+curl -X POST http://localhost:8000/api/monitors/1/maintenance \
+  -H 'Content-Type: application/json' \
+  -d '{"starts_at":"2026-11-10T01:00:00+00:00", "ends_at":"2026-11-10T02:00:00+00:00", "reason":"Database update"}'
+
+curl http://localhost:8000/api/monitors/1/maintenance
+# Replace 5 with the returned maintenance ID to cancel it.
+curl -X DELETE http://localhost:8000/api/monitors/1/maintenance/5
+```
+
+A maintenance window does not stop checks. Incident history is retained; only new outage notifications are suppressed while the window is active. Persistent outages send one opening event on the first failed check after the interval. The start is inclusive and the end exclusive.
+
 Pause or resume a monitor:
 
 ```bash

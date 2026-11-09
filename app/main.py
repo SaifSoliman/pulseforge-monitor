@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import Settings
 from .db import Repository
 from .export import encode_csv
-from .models import MonitorCreate, MonitorUpdate
+from .models import MaintenanceWindowCreate, MonitorCreate, MonitorUpdate
 from .service import MonitoringService
 
 STATIC = Path(__file__).parent / "static"
@@ -40,7 +40,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title="PulseForge API",
         description="Self-hosted HTTP uptime checks, outage incidents, acknowledgements, and history.",
-        version="1.1.0",
+        version="1.2.0",
         lifespan=lifespan,
     )
     app.state.repository = repo
@@ -105,6 +105,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Monitor not found")
         return None
 
+    @app.get("/api/monitors/{monitor_id}/maintenance", dependencies=[Depends(require_token)], tags=["Maintenance"])
+    def maintenance_windows(monitor_id: int):
+        if not repo.get_monitor(monitor_id):
+            raise HTTPException(status_code=404, detail="Monitor not found")
+        return repo.list_maintenance_windows(monitor_id)
+
+    @app.post("/api/monitors/{monitor_id}/maintenance", status_code=201, dependencies=[Depends(require_token)], tags=["Maintenance"])
+    def schedule_maintenance(monitor_id: int, payload: MaintenanceWindowCreate):
+        data = {
+            "starts_at": payload.starts_at.isoformat(timespec="seconds"),
+            "ends_at": payload.ends_at.isoformat(timespec="seconds"),
+            "reason": payload.reason,
+        }
+        window = repo.create_maintenance_window(monitor_id, data)
+        if not window:
+            raise HTTPException(status_code=404, detail="Monitor not found")
+        return window
+
+    @app.delete("/api/monitors/{monitor_id}/maintenance/{window_id}", status_code=204, dependencies=[Depends(require_token)], tags=["Maintenance"])
+    def cancel_maintenance(monitor_id: int, window_id: int):
+        if not repo.delete_maintenance_window(monitor_id, window_id):
+            raise HTTPException(status_code=404, detail="Maintenance window not found")
+        return None
+
     @app.post("/api/monitors/{monitor_id}/check", dependencies=[Depends(require_token)], tags=["Monitors"])
     async def check_now(monitor_id: int):
         try:
@@ -164,6 +188,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "# HELP pulseforge_monitors_down Monitors with confirmed outages.",
             "# TYPE pulseforge_monitors_down gauge",
             f"pulseforge_monitors_down {data['down']}",
+            "# HELP pulseforge_monitors_in_maintenance Monitors in an active maintenance window.",
+            "# TYPE pulseforge_monitors_in_maintenance gauge",
+            f"pulseforge_monitors_in_maintenance {data['in_maintenance']}",
             "# HELP pulseforge_incidents_active Unresolved incidents.",
             "# TYPE pulseforge_incidents_active gauge",
             f"pulseforge_incidents_active {data['active_incidents']}",

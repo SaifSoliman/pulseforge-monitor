@@ -13,7 +13,7 @@ Run real HTTP checks. Detect outages. Acknowledge incidents. Track recovery. Own
 
 </div>
 
-> **Project status:** Early release (v1.1). HTTP checks, incident state transitions, CSV export and notification retry are implemented. Open engineering work is tracked in [the roadmap](docs/roadmap.md).
+> **Project status:** Early release (v1.2). HTTP checks, incident state transitions, maintenance windows, CSV export and notification retry are implemented. Open engineering work is tracked in [the roadmap](docs/roadmap.md).
 
 ## Why this project exists
 
@@ -30,6 +30,7 @@ This project is intentionally small enough to understand end-to-end but has prod
 | Historical performance | Timestamped checks, 24-hour success rate, latency chart and CSV export |
 | Operational dashboard | Responsive, searchable and filterable interface; live 15-second refresh |
 | Durable notifications | Webhook events stored transactionally with incidents; exponential-backoff retries |
+| Maintenance scheduling | One-time downtime windows per monitor, with alert suppression and uninterrupted check history |
 | Automation-friendly API | CRUD, on-demand checks, history, incidents, Swagger at `/docs` |
 | Metrics export | Prometheus-style `/metrics` endpoint and `/healthz`, `/readyz` |
 | Deployable project | Docker Compose, Kubernetes single-replica sample, CI, tests |
@@ -67,6 +68,19 @@ Open **http://localhost:8000**. Data defaults to `var/pulseforge.db` (ignored by
 Use the **+ Add monitor** button and enter a publicly accessible HTTP URL that you have permission to monitor, such as a health endpoint on a service you own. Set the expected HTTP response code (typically `200`). Checks start automatically and the dashboard updates every 15 seconds.
 
 > Private IP ranges and localhost are blocked by default to reduce server-side request forgery (SSRF) exposure. Set `ALLOW_PRIVATE_TARGETS=true` **only in trusted environments** to monitor local or private services. This requires restarting the application.
+
+## Schedule planned maintenance
+
+Use **View details → Schedule maintenance** on any monitor, select local start/end times and optionally enter a reason. The dashboard converts these to UTC before sending them to the API. Windows can last up to seven days; you can remove them from the same monitor details panel.
+
+Monitoring **does not pause** during maintenance: checks, uptime calculations and incidents remain available, and a `DOWN` monitor still displays its actual state. What changes is the notification policy:
+
+- A new outage during maintenance is recorded but not announced through a webhook.
+- If the outage persists once maintenance ends, the next failing check sends one `incident.opened` event, with the incident's original start time.
+- An outage that starts and recovers entirely within the window produces no webhook events.
+- A previously announced outage still generates `incident.resolved` if it recovers during maintenance; this prevents a stale alert on the receiver.
+
+A window is active from its start timestamp **inclusive** until its end timestamp **exclusive**. Existing queued webhook events are not cancelled when maintenance is scheduled. Windows are stored in SQLite and survive application restarts. See [API examples](docs/api-examples.md) for command-line usage.
 
 ## Reproduce the local outage/recovery demo
 
@@ -116,6 +130,8 @@ When using Docker, `127.0.0.1:9000` *inside the container* is not the host demo 
 | POST | `/api/incidents/{id}/acknowledge` | Record incident acknowledgement |
 | GET | `/api/incidents.csv` | Download incident history as CSV |
 | GET | `/api/notifications/status` | Pending and retrying webhook events |
+| GET / POST | `/api/monitors/{id}/maintenance` | List and schedule maintenance windows |
+| DELETE | `/api/monitors/{id}/maintenance/{window_id}` | Remove a maintenance window |
 | GET | `/metrics` | Prometheus text exposition |
 | GET | `/healthz`, `/readyz` | Liveness and database readiness |
 
@@ -168,9 +184,11 @@ For architecture, schema, concurrency and tradeoffs, see [docs/architecture.md](
 
 This is a working MVP, not a claim of enterprise-grade monitoring. It uses one scheduler process and SQLite; multi-instance deployments would duplicate checks. Monitoring is limited to HTTP GET/HEAD, with no TLS certificate-expiry checks, granular roles, or distributed probe agents. DNS-based SSRF checks reduce risk but cannot eliminate DNS rebinding without network-level egress restrictions.
 
-Next planned work includes maintenance windows, monitor ownership/teams, delivery observability, a PostgreSQL + worker migration, per-monitor charts over longer windows, and richer deployments. See the [roadmap](docs/roadmap.md).
+Next planned work includes monitor ownership/teams, delivery observability, a PostgreSQL + worker migration, per-monitor charts over longer windows, and richer deployments. See the [roadmap](docs/roadmap.md).
 
 ## Development and maintenance
+
+**Upgrading from v1.1:** Back up `var/pulseforge.db` (or your Docker volume) before restarting the new version. Startup adds an `alerted_at` column for incident notification state and creates the `maintenance_windows` table; existing checks and incidents remain intact. The migration is idempotent, but downgrading to the older code is not a supported workflow.
 
 The core application is intentionally single-instance: a scheduler runs endpoint checks, each result updates monitor and incident state transactionally, and outbound events are stored in a SQLite outbox for retry. The dashboard reads that state through the API rather than keeping a separate monitoring model.
 

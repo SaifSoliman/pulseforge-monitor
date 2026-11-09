@@ -2,6 +2,12 @@
 
 The items below reflect current limitations and potential improvements. Each change should have a testable acceptance criterion and a documented trade-off.
 
+## Implemented in v1.2
+
+- [x] **Schedule one-time maintenance windows** per monitor, suppressing new alerts while continuing checks and incident history.
+- [x] **Notify on sustained outages after maintenance** and close already-announced incidents even if they recover during maintenance.
+- [x] **Cover UTC boundaries, validation and restarts** in automated tests.
+
 ## Implemented in v1.1
 
 - [x] **Export monitor history and incidents to CSV**, with spreadsheet-formula protection for user-entered fields.
@@ -10,7 +16,6 @@ The items below reflect current limitations and potential improvements. Each cha
 
 ## Near-term
 
-- [ ] **Add a maintenance-window scheduler** so planned downtime suppresses alerts without deleting history. Include tests for the time window boundary.
 - [ ] **Build per-monitor check charts** for 24h, 7d and 30d, including downsampling to avoid sending thousands of points to the frontend.
 - [ ] **Implement configuration change audits** that track who changed target URLs, thresholds and enabled state.
 

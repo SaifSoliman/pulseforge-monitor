@@ -43,7 +43,7 @@
           <div class="agent-symbol"><span class="pulse-light"></span> MONITOR ENGINE</div>
           <strong>Monitoring active</strong>
           <p>Checks run automatically on your configured schedule.</p>
-          <div class="agent-footer"><span>ENGINE V1.1</span><span class="status-mark">● OPERATIONAL</span></div>
+          <div class="agent-footer"><span>ENGINE V1.2</span><span class="status-mark">● OPERATIONAL</span></div>
         </div>
         <div class="sidebar-footer">BUILT FOR THE ON-CALL ENGINEER <span>↗</span></div>
       </div>
@@ -66,7 +66,7 @@
 
       <div class="page-body">
         <section class="page-head">
-          <div class="eyebrow"><span class="eyebrow-line"></span> OPERATIONS CONTROL CENTER <span class="version-chip">v1.1</span></div>
+          <div class="eyebrow"><span class="eyebrow-line"></span> OPERATIONS CONTROL CENTER <span class="version-chip">v1.2</span></div>
           <div class="title-line">
             <div>
               <h1 id="pageTitle">System overview<span class="title-dot">.</span></h1>
@@ -123,6 +123,19 @@
         <label class="check-label"><input type="checkbox" name="enabled" checked> Enable automatic monitoring</label>
       </div>
       <div class="modal-actions"><button type="button" class="outline-btn" data-close-dialog>Cancel</button><button type="submit" class="primary-btn" id="saveMonitorBtn">Create monitor</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="maintenanceDialog" class="modal small-modal">
+    <form id="maintenanceForm">
+      <div class="modal-heading"><div><div class="section-kicker">PLANNED DOWNTIME</div><h2>Schedule maintenance</h2><p>Checks continue during maintenance, but new outage alerts stay quiet.</p></div><button type="button" class="close-button" data-close-dialog aria-label="Close">×</button></div>
+      <div class="form-fields">
+        <label>Starts (your local time) <input type="datetime-local" name="starts_at" required></label>
+        <label>Ends (your local time) <input type="datetime-local" name="ends_at" required></label>
+        <label>Reason (optional) <input type="text" name="reason" maxlength="200" placeholder="Database upgrade"></label>
+        <p class="helper-text">Maximum seven days. If an outage is still active when maintenance ends, the next failing check generates an alert.</p>
+      </div>
+      <div class="modal-actions"><button type="button" class="outline-btn" data-close-dialog>Cancel</button><button type="submit" class="primary-btn" id="saveMaintenanceBtn">Schedule</button></div>
     </form>
   </dialog>
 

@@ -150,6 +150,7 @@ function renderMonitors() {
   grid.innerHTML = filtered.map((m) => `
     <article class="monitor-card">
       <div class="monitor-card-top"><div class="monitor-icon">${escapeHTML(m.name.slice(0, 1).toUpperCase())}</div>${statusBadge(monitorStatus(m))}</div>
+      ${m.maintenance_active ? `<div class="maintenance-note">◷ Maintenance until ${escapeHTML(fullTime(m.maintenance_until))}</div>` : ''}
       <h3 title="${escapeHTML(m.name)}">${escapeHTML(m.name)}</h3><div class="monitor-url" title="${escapeHTML(m.url)}">${escapeHTML(m.url)}</div>
       <div class="mini-stats"><div><span>24H SUCCESS</span><strong>${compact(m.uptime_24h, '%')}</strong></div><div><span>LAST LATENCY</span><strong>${compact(m.last_latency_ms)} <span class="small-unit">ms</span></strong></div></div>
       <div class="monitor-card-bottom"><span class="last-checked">◷ ${fmtTime(m.last_checked_at)}</span><button class="text-button" type="button" data-action="details" data-id="${m.id}">View details ↗</button></div>
@@ -252,16 +253,23 @@ function buildChart(checks) {
 async function renderDrawer(id) {
   const m = state.monitors.find((item) => item.id === id);
   if (!m) { closeDrawer(); return; }
-  const history = await api(`/api/monitors/${id}/history?limit=40`);
+  const [history, windows] = await Promise.all([
+    api(`/api/monitors/${id}/history?limit=40`),
+    api(`/api/monitors/${id}/maintenance`),
+  ]);
   const content = $('#drawerContent');
   content.innerHTML = `<h2 class="drawer-name">${escapeHTML(m.name)}</h2><div class="drawer-url">${escapeHTML(m.url)}</div>
-    <div style="margin-top:17px">${statusBadge(monitorStatus(m))}</div>
+    <div style="margin-top:17px">${statusBadge(monitorStatus(m))}${m.maintenance_active ? `<span class="status-pill maintenance-pill">◷ MAINTENANCE</span>` : ''}</div>
     <div class="drawer-metrics"><div class="drawer-metric"><span>24H SUCCESS</span><strong>${compact(m.uptime_24h, '%')}</strong></div><div class="drawer-metric"><span>LATENCY</span><strong>${compact(m.last_latency_ms, ' ms')}</strong></div><div class="drawer-metric"><span>HTTP CODE</span><strong>${compact(m.last_http_status)}</strong></div></div>
     ${m.last_error ? `<div class="error-banner" style="margin-top:20px">${escapeHTML(m.last_error)}</div>` : ''}
     <div class="drawer-section"><h3>Recent latency <span style="color:#7890a7;font-weight:400">/ milliseconds</span></h3><div class="drawer-chart">${buildChart(history)}</div></div>
     <div class="drawer-section"><h3>Configuration</h3><div class="check-row">HTTP method <span class="check-time">${escapeHTML(m.method)}</span></div><div class="check-row">Expected code <span class="check-time">${m.expected_status}</span></div><div class="check-row">Check interval <span class="check-time">${m.interval_seconds}s</span></div><div class="check-row">Failure threshold <span class="check-time">${m.failure_threshold} checks</span></div></div>
+    <div class="drawer-section"><h3>Maintenance windows</h3>
+      <p class="drawer-hint">Checks and incidents remain visible. New outage notifications are suppressed inside the scheduled interval.</p>
+      ${windows.length ? windows.map((w) => `<div class="maintenance-entry"><div><strong>${escapeHTML(fullTime(w.starts_at))} – ${escapeHTML(fullTime(w.ends_at))}</strong>${w.active ? '<span class="status-pill maintenance-pill">ACTIVE</span>' : ''}<small>${escapeHTML(w.reason || 'Planned maintenance')}</small></div><button class="text-button" type="button" data-action="cancel-maintenance" data-id="${w.id}" data-monitor="${m.id}">Remove</button></div>`).join('') : '<p class="drawer-hint">No maintenance scheduled.</p>'}
+    </div>
     <div class="drawer-section"><h3>Check history</h3><div class="drawer-checks">${history.length ? history.slice(0, 10).map((h) => `<div class="check-row ${h.ok ? '' : 'failed'}"><span class="check-icon">${h.ok ? '●' : '●'}</span><span>${h.ok ? `HTTP ${h.status_code}` : escapeHTML(h.error || 'Failed')}</span><span class="check-time">${fmtTime(h.checked_at)}</span></div>`).join('') : '<p style="color:#8298b2;font-size:12px">No checks have been recorded yet.</p>'}</div></div>
-    <div class="drawer-actions"><button class="primary-btn" type="button" data-action="check" data-id="${m.id}" ${m.enabled ? '' : 'disabled'}>↻ Run check now</button><button class="outline-btn" type="button" data-action="export" data-id="${m.id}">Export CSV</button><button class="outline-btn" type="button" data-action="edit" data-id="${m.id}">Edit</button><button class="danger-button" type="button" data-action="delete" data-id="${m.id}">Delete</button></div>`;
+    <div class="drawer-actions"><button class="primary-btn" type="button" data-action="check" data-id="${m.id}" ${m.enabled ? '' : 'disabled'}>↻ Run check now</button><button class="outline-btn" type="button" data-action="maintenance" data-id="${m.id}">Schedule maintenance</button><button class="outline-btn" type="button" data-action="export" data-id="${m.id}">Export CSV</button><button class="outline-btn" type="button" data-action="edit" data-id="${m.id}">Edit</button><button class="danger-button" type="button" data-action="delete" data-id="${m.id}">Delete</button></div>`;
 }
 function openDrawer(id) {
   state.selectedId = id;
@@ -276,8 +284,53 @@ function closeDrawer() {
   $('#detailDrawer').setAttribute('aria-hidden', 'true');
   $('#drawerBackdrop').hidden = true;
 }
-async function handleAction(action, id) {
+function localDateTimeInput(date) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+function openMaintenanceDialog(monitorId) {
+  state.maintenanceMonitorId = monitorId;
+  const form = $('#maintenanceForm');
+  form.reset();
+  const start = new Date(Date.now() + 5 * 60000);
+  form.elements.starts_at.value = localDateTimeInput(start);
+  form.elements.ends_at.value = localDateTimeInput(new Date(start.getTime() + 60 * 60000));
+  $('#maintenanceDialog').showModal();
+}
+async function submitMaintenance(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const start = new Date(form.elements.starts_at.value);
+  const end = new Date(form.elements.ends_at.value);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+    toast('Choose a valid end time after the start time.', true);
+    return;
+  }
+  const button = $('#saveMaintenanceBtn');
+  button.disabled = true;
+  try {
+    await api(`/api/monitors/${state.maintenanceMonitorId}/maintenance`, {
+      method: 'POST',
+      body: JSON.stringify({starts_at: start.toISOString(), ends_at: end.toISOString(), reason: form.elements.reason.value}),
+    });
+    $('#maintenanceDialog').close();
+    toast('Maintenance scheduled. Checks will continue throughout the window.');
+    await refresh(true);
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+}
+async function handleAction(action, id, monitorId = null) {
   if (action === 'add') return openAddModal();
+  if (action === 'maintenance') return openMaintenanceDialog(id);
+  if (action === 'cancel-maintenance') {
+    if (!window.confirm('Remove this maintenance window? Any active outage may trigger an alert on its next check.')) return;
+    try {
+      await api(`/api/monitors/${monitorId}/maintenance/${id}`, {method: 'DELETE'});
+      toast('Maintenance window removed.');
+      await refresh(true);
+    } catch (error) { toast(error.message, true); }
+    return;
+  }
   if (action === 'details') return openDrawer(id);
   if (action === 'edit') { const m = state.monitors.find((item) => item.id === id); if (m) openAddModal(m); return; }
   if (action === 'check') {
@@ -314,6 +367,7 @@ $('#incidentExport').addEventListener('click', async () => {
 });
 $('#tokenButton').addEventListener('click', () => { $('#tokenForm').elements.token.value = state.token; $('#tokenDialog').showModal(); });
 $('#monitorForm').addEventListener('submit', submitMonitor);
+$('#maintenanceForm').addEventListener('submit', submitMaintenance);
 $('#tokenForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   state.token = event.currentTarget.elements.token.value.trim();
@@ -328,7 +382,7 @@ $('#searchInput').addEventListener('input', (event) => { state.search = event.ta
 $('#stateFilter').addEventListener('change', (event) => { state.filter = event.target.value; renderMonitors(); });
 $('#monitorGrid').addEventListener('click', (event) => { const btn = event.target.closest('[data-action]'); if (btn) handleAction(btn.dataset.action, Number(btn.dataset.id)); });
 $('#incidentList').addEventListener('click', (event) => { const btn = event.target.closest('[data-action]'); if (btn) handleAction(btn.dataset.action, Number(btn.dataset.id)); });
-$('#drawerContent').addEventListener('click', (event) => { const btn = event.target.closest('[data-action]'); if (btn) handleAction(btn.dataset.action, Number(btn.dataset.id)); });
+$('#drawerContent').addEventListener('click', (event) => { const btn = event.target.closest('[data-action]'); if (btn) handleAction(btn.dataset.action, Number(btn.dataset.id), Number(btn.dataset.monitor)); });
 $('#closeDrawer').addEventListener('click', closeDrawer);
 $('#drawerBackdrop').addEventListener('click', closeDrawer);
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeDrawer(); });

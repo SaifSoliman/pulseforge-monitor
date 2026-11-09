@@ -15,7 +15,9 @@
 
 **checks** is an append-only-by-default event log of actual probes. It records timestamps, boolean success, status, latency and the error string. Rows older than the configured retention are purged by the scheduler.
 
-**incidents** stores an incident per confirmed outage, with `started_at`, `resolved_at`, `acknowledged_at`, `cause` and `failed_checks`. Deleting a monitor cascades to its checks and incidents.
+**incidents** stores an incident per confirmed outage, with `started_at`, `resolved_at`, `acknowledged_at`, `cause`, `failed_checks` and `alerted_at`. The latter tracks whether an opening event was announced, not whether an external receiver processed it. Deleting a monitor cascades to its checks and incidents.
+
+**maintenance_windows** stores a one-time half-open interval `[starts_at, ends_at)` and an optional reason per monitor, in UTC. Checks and incident transitions continue during maintenance. It changes only whether a *new* incident opening generates a notification.
 
 **notification_outbox** stores serialized webhook events independently of the incident rows. Events are inserted in the same transaction as the state change, then delivered by an async dispatcher. Failed deliveries set a retry time (30 seconds doubling to a 1-hour cap); delivered events retain a delivery timestamp for investigation.
 
@@ -30,7 +32,13 @@ DOWN    -- further failure -------------------------> DOWN (update failure count
 DOWN    -- successful probe ------------------------> UP (resolve incident)
 ```
 
+A maintenance window is independent of the monitor's `UP`/`DOWN` state. New incidents started inside the interval have `alerted_at=NULL`. If a later failed check finds one of these incidents after maintenance, it marks `alerted_at` and announces the original outage exactly once. If the incident recovers before that happens, the incident closes without an alert. Previously announced outages still emit a resolution notification, even during maintenance, so downstream systems are not left with an active alert. Checks and history are always retained.
+
 Paused monitors preserve their last known state but are not checked by the scheduler. A first successful probe clears the failure streak. Manual checks use the same transitions as scheduled checks.
+
+## Schema upgrades
+
+On startup, the repository creates the maintenance table if needed. For pre-1.2 databases it adds `incidents.alerted_at` and backfills existing incidents with their start time to avoid sending duplicate opening alerts on upgrade. The change is one-way; back up the SQLite file or volume before upgrading.
 
 ## Why SQLite and one worker?
 
