@@ -1,0 +1,90 @@
+# Example single-replica manifest. For production use a TLS-enabled Ingress and restrict egress.
+# Update the image to one you have built and pushed to your container registry.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pulseforge-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pulseforge
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: pulseforge
+  template:
+    metadata:
+      labels:
+        app: pulseforge
+    spec:
+      containers:
+        - name: pulseforge
+          image: YOUR_REGISTRY/pulseforge-monitor:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: DATABASE_PATH
+              value: /data/pulseforge.db
+            - name: SCHEDULER_ENABLED
+              value: 'true'
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: pulseforge-secrets
+                  key: admin-token
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 999
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: pulseforge-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pulseforge
+spec:
+  selector:
+    app: pulseforge
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  type: ClusterIP

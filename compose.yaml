@@ -1,0 +1,23 @@
+services:
+  pulseforge:
+    build: .
+    image: pulseforge-monitor:local
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - pulseforge_data:/data
+    environment:
+      DATABASE_PATH: /data/pulseforge.db
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
+      SCHEDULER_TICK_SECONDS: ${SCHEDULER_TICK_SECONDS:-10}
+      ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
+      HISTORY_RETENTION_DAYS: ${HISTORY_RETENTION_DAYS:-30}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+volumes:
+  pulseforge_data:

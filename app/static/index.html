@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0a0e17">
+  <meta name="description" content="PulseForge — an open-source, self-hosted uptime monitoring and incident response dashboard.">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <title>PulseForge — Monitoring Control Room</title>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Main navigation">
+      <a class="brand" href="/" aria-label="PulseForge home">
+        <div class="brand-mark"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M3 19h8l4-10 6 18 4-8h8"/></svg></div>
+        <div><span class="brand-name">pulseforge<span class="brand-dot">.</span></span><span class="brand-sub">OBSERVABILITY SUITE</span></div>
+      </a>
+      <div class="sidebar-section-title">WORKSPACE</div>
+      <nav class="main-nav" aria-label="Views">
+        <button class="nav-link active" data-view="overview" type="button">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><span>Overview</span>
+        </button>
+        <button class="nav-link" data-view="monitors" type="button">
+          <svg viewBox="0 0 24 24"><path d="M2 13h5l3-8 4 14 3-6h5"/></svg><span>Monitors</span><span class="nav-count" id="sidebarMonitorCount">0</span>
+        </button>
+        <button class="nav-link" data-view="incidents" type="button">
+          <svg viewBox="0 0 24 24"><path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5m0 3v.1"/></svg><span>Incidents</span><span class="nav-count" id="sidebarIncidentCount">0</span>
+        </button>
+      </nav>
+      <div class="sidebar-section-title resources-label">RESOURCES</div>
+      <nav class="main-nav">
+        <a class="nav-link" href="/docs" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24"><path d="M5 4h10l4 4v12H5zM15 4v5h4M9 13h6m-6 4h6"/></svg><span>API Reference</span>
+          <svg class="external-icon" viewBox="0 0 24 24"><path d="M14 4h6v6m0-6-9 9M20 14v6H4V4h6"/></svg>
+        </a>
+        <button class="nav-link" data-view="about" type="button">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v.1"/></svg><span>About project</span>
+        </button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="agent-card">
+          <div class="agent-symbol"><span class="pulse-light"></span> MONITOR ENGINE</div>
+          <strong>Monitoring active</strong>
+          <p>Checks run automatically on your configured schedule.</p>
+          <div class="agent-footer"><span>ENGINE V1.1</span><span class="status-mark">● OPERATIONAL</span></div>
+        </div>
+        <div class="sidebar-footer">BUILT FOR THE ON-CALL ENGINEER <span>↗</span></div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div class="crumbs"><span class="crumb-root">Workspace</span><span class="crumb-divider">/</span><span id="crumbCurrent">Overview</span></div>
+        <div class="top-actions">
+          <span class="live-badge"><span class="pulse-light"></span> LIVE SYSTEM</span>
+          <button id="tokenButton" type="button" class="icon-btn token-button" title="Configure access token" aria-label="Configure access token">
+            <svg viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9 2 2-3 3 1 2-3 3-2-1-3 3"/></svg>
+          </button>
+          <button id="refreshButton" class="icon-btn" type="button" aria-label="Refresh dashboard" title="Refresh dashboard">
+            <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2 6m2-10v4h-4"/></svg>
+          </button>
+          <div class="avatar" title="Administrator">PF</div>
+        </div>
+      </header>
+
+      <div class="page-body">
+        <section class="page-head">
+          <div class="eyebrow"><span class="eyebrow-line"></span> OPERATIONS CONTROL CENTER <span class="version-chip">v1.1</span></div>
+          <div class="title-line">
+            <div>
+              <h1 id="pageTitle">System overview<span class="title-dot">.</span></h1>
+              <p id="pageDescription" class="page-description">Real-time visibility into the services that keep your business running.</p>
+            </div>
+            <button id="addMonitorButton" class="primary-btn" type="button"><span class="plus">+</span> Add monitor</button>
+          </div>
+        </section>
+
+        <div id="globalError" class="error-banner" hidden role="alert"></div>
+
+        <section id="overviewView" class="view-content">
+          <div class="health-strip">
+            <div class="health-strip-left"><div class="health-icon"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg></div><div><strong id="healthHeadline">Your control room is ready</strong><p id="healthSubtitle">Create a monitor to begin collecting real availability data.</p></div></div>
+            <div class="health-strip-right"><span class="health-label">SYSTEM STATUS</span><strong id="healthStatus" class="health-status">AWAITING DATA</strong></div>
+          </div>
+          <div class="stats-grid">
+            <div class="stat-card"><div class="stat-top"><span>MONITORS</span><div class="stat-glyph blue">◈</div></div><div class="stat-value" id="statTotal">0</div><div class="stat-foot">Configured endpoints <span>↗</span></div></div>
+            <div class="stat-card"><div class="stat-top"><span>OPERATIONAL</span><div class="stat-glyph green">↗</div></div><div class="stat-value" id="statUp">0</div><div class="stat-foot"><span class="green-text">●</span> Responding as expected</div></div>
+            <div class="stat-card"><div class="stat-top"><span>NEEDS ATTENTION</span><div class="stat-glyph red">!</div></div><div class="stat-value" id="statDown">0</div><div class="stat-foot"><span class="red-text">●</span> Confirmed outages</div></div>
+            <div class="stat-card"><div class="stat-top"><span>24H CHECK SUCCESS</span><div class="stat-glyph purple">⌁</div></div><div class="stat-value" id="statUptime">—</div><div class="stat-foot"><span id="statChecks">0</span> real HTTP checks recorded</div></div>
+          </div>
+          <div class="section-heading monitor-section-heading">
+            <div><div class="section-kicker">INFRASTRUCTURE</div><h2>Endpoint monitors <span class="section-total" id="sectionMonitorCount">0</span></h2></div>
+            <div class="filters"><label class="search-field"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="7"/><path d="m15 15 6 6"/></svg><input id="searchInput" type="search" placeholder="Search monitors..." aria-label="Search monitors"></label><select id="stateFilter" aria-label="Filter by monitor state"><option value="ALL">All statuses</option><option value="UP">Operational</option><option value="DOWN">Down</option><option value="PENDING">Pending</option><option value="PAUSED">Paused</option></select></div>
+          </div>
+          <div id="monitorGrid" class="monitor-grid"></div>
+        </section>
+
+        <section id="incidentsView" class="view-content" hidden>
+          <div class="section-heading incident-heading"><div><div class="section-kicker">INCIDENT RESPONSE</div><h2>Incident timeline</h2><p>Confirmed outages are opened and resolved automatically. Acknowledge to record that you've seen an incident.</p></div><div class="filters"><button type="button" class="outline-btn" id="incidentExport">Export CSV</button><button type="button" class="outline-btn" id="incidentRefresh">Refresh history</button></div></div>
+          <div class="table-shell"><div id="incidentList"></div></div>
+        </section>
+
+        <section id="aboutView" class="view-content" hidden>
+          <div class="about-hero"><div class="about-icon">⌁</div><div class="section-kicker">SELF-HOSTED. OPERATIONS-FIRST.</div><h2>Confidence in every request.</h2><p>PulseForge performs real HTTP checks on your services, keeps a searchable check history, opens incidents when failure thresholds are met, and records recoveries. Designed to be understandable, deployable, and extensible.</p><div class="about-tags"><span>FASTAPI</span><span>SQLITE</span><span>DOCKER</span><span>GITHUB ACTIONS</span><span>KUBERNETES</span></div><a class="primary-btn inline-button" href="/docs" target="_blank" rel="noopener">Explore interactive API docs ↗</a></div>
+          <div class="about-features"><div><span class="feature-number">01 /</span><h3>Actual probes</h3><p>GET or HEAD requests with timeout and expected-status checks. Redirects aren't silently followed.</p></div><div><span class="feature-number">02 /</span><h3>Incident lifecycle</h3><p>Configurable failure thresholds, automatic recovery, incident acknowledgement, and optional webhook notifications.</p></div><div><span class="feature-number">03 /</span><h3>Built to deploy</h3><p>Non-root Docker image, persistent storage, health endpoints, Kubernetes sample, CI, and unit tests.</p></div></div>
+        </section>
+
+        <footer class="footer"><span>PULSEFORGE / CONTROL ROOM</span><span id="lastUpdated">NOT YET SYNCED</span><span>MADE TO OBSERVE · BUILT TO EVOLVE</span></footer>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="monitorDialog" class="modal">
+    <form id="monitorForm" autocomplete="off">
+      <div class="modal-heading"><div><div class="section-kicker">MONITOR CONFIGURATION</div><h2 id="modalTitle">Create monitor</h2><p>Configure a service to track and get alerted when it goes down.</p></div><button type="button" class="close-button" data-close-dialog aria-label="Close">×</button></div>
+      <div class="form-fields">
+        <label>Monitor name <input name="name" minlength="2" maxlength="80" required placeholder="Production API"></label>
+        <label>Endpoint URL <input name="url" type="url" required maxlength="2048" placeholder="https://api.example.com/health"></label>
+        <div class="form-row"><label>HTTP method<select name="method"><option value="GET">GET</option><option value="HEAD">HEAD</option></select></label><label>Expected status<input type="number" name="expected_status" value="200" min="100" max="599" required></label></div>
+        <div class="form-row"><label>Check interval (sec)<input type="number" name="interval_seconds" value="60" min="30" max="3600" required></label><label>Timeout (sec)<input type="number" name="timeout_seconds" value="8" min="1" max="30" required></label></div>
+        <label>Consecutive failures before incident <input type="number" name="failure_threshold" value="2" min="1" max="10" required></label>
+        <label class="check-label"><input type="checkbox" name="enabled" checked> Enable automatic monitoring</label>
+      </div>
+      <div class="modal-actions"><button type="button" class="outline-btn" data-close-dialog>Cancel</button><button type="submit" class="primary-btn" id="saveMonitorBtn">Create monitor</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="tokenDialog" class="modal small-modal">
+    <form id="tokenForm"><div class="modal-heading"><div><div class="section-kicker">SECURITY</div><h2>API access key</h2><p>If you've enabled <code>ADMIN_TOKEN</code>, enter it here to authorize dashboard requests.</p></div><button type="button" class="close-button" data-close-dialog aria-label="Close">×</button></div><div class="form-fields"><label>Access token <input type="password" name="token" autocomplete="off" placeholder="Your ADMIN_TOKEN"></label><p class="helper-text">Stored in this browser tab's session storage only. For production, use HTTPS.</p></div><div class="modal-actions"><button type="button" class="outline-btn" data-close-dialog>Cancel</button><button class="primary-btn" type="submit">Save token</button></div></form>
+  </dialog>
+
+  <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
+  <aside id="detailDrawer" class="detail-drawer" aria-label="Monitor details" aria-hidden="true">
+    <div class="drawer-top"><span>MONITOR DETAILS <span class="drawer-top-sub">/ INSPECT</span></span><button id="closeDrawer" type="button" class="close-button" aria-label="Close details">×</button></div>
+    <div id="drawerContent"></div>
+  </aside>
+  <div id="toastArea" class="toast-area" role="status" aria-live="polite"></div>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

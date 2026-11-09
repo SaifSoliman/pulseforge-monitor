@@ -1,0 +1,15 @@
+.git
+.github
+.pytest_cache
+.ruff_cache
+.venv
+*.db
+*.db-shm
+*.db-wal
+__pycache__
+.env
+tests
+assets
+k8s
+scripts
+docs
